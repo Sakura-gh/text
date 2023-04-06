@@ -1,11 +1,12 @@
 # GUI
 
-![image-20230406213619022](https://cdn.jsdelivr.net/gh/Sakura-gh/picBed/img/image-20230406213619022.png)
+![show1](./img/show1.png)
 
-![image-20230406213831226](https://cdn.jsdelivr.net/gh/Sakura-gh/picBed/img/image-20230406213831226.png)
+![show2](./img/show2.png)
 
-![image-20230406213844136](https://cdn.jsdelivr.net/gh/Sakura-gh/picBed/img/image-20230406213844136.png)
+![show3](./img/show3.png)
 
-![image-20230406213953371](https://cdn.jsdelivr.net/gh/Sakura-gh/picBed/img/image-20230406213953371.png)
+![show4](./img/show4.png)
 
-![image-20230406213925747](https://cdn.jsdelivr.net/gh/Sakura-gh/picBed/img/image-20230406213925747.png)
+![show5](./img/show5.png)
+
