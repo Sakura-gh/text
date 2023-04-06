@@ -1,0 +1,418 @@
+QWidget#main_widget 
+{
+}
+
+QWidget#first_page_widget 
+{
+  /* 能够抵消窗体透明度, 使之变成不透明的白底导航栏 */
+  background-color: white;
+}
+
+QWidget#background_widget
+{
+  /* background-color: red;   */
+  /* background-image: url('./img/background3.png'); */
+}
+
+QWidget#navigator_widget
+{
+  /* background-color: red; */
+}
+
+/* QWidget#close_mini_visit_widget
+{
+  background-color: yellow;  
+}
+
+QWidget#content_widget
+{
+  background-color: blue;
+} */
+
+QWidget#first_navigator_widget 
+{
+}
+
+QPushButton#first_navigator_button
+{
+  border: none;
+  border-left:2px solid black;
+  /* font-family: 'FZSongKeBenXiuKai-R-GBK'; */
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 32px;
+  color: black;
+}
+
+QPushButton#first_navigator_button:hover 
+{
+  border-left: 4px solid green; 
+  font-weight: 700;
+}
+
+QPushButton#navigator_button
+{
+  border: none;
+  border-left:2px solid white;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 32px;
+  color: white;
+}
+
+QPushButton#navigator_button:hover 
+{
+  border-left: 4px solid green; 
+  font-weight: 700;
+}
+
+QPushButton#close
+{
+  max-width: 20px;
+  min-width: 20px;
+  max-height: 20px;
+  min-height: 20px;
+  background-color: #F76677;
+  border-radius: 10px;
+}
+
+QPushButton#close:hover
+{
+  background-color: red;
+}
+
+QPushButton#visit
+{
+  max-width: 20px;
+  min-width: 20px;
+  max-height: 20px;
+  min-width: 20px;
+  background-color: #F7D674;
+  border-radius: 10px;  
+}
+
+QPushButton#visit:hover
+{
+  background-color: yellow;
+}
+
+QPushButton#mini
+{
+  max-width: 20px;
+  min-width: 20px;
+  max-height: 20px;
+  min-height: 20px;
+  background-color: #6DDF6D;
+  border-radius: 10px;
+}
+
+QPushButton#mini:hover
+{
+  background-color: green;
+}
+
+
+QWidget#corpus_widget
+{
+}
+
+/* 不知道为啥没法识别 */
+QScrollArea 
+{
+  background-color: transparent;
+}
+
+QWidget#corpus_widget QLabel
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;
+}
+
+QWidget#corpus_widget QLineEdit
+{
+  /* border: none; */
+  border-radius: 4px;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  /* color: black; */
+  color: gray;
+  background-color: white;  
+}
+
+QWidget#corpus_widget QPushButton
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;  
+}
+
+QWidget#corpus_widget QPushButton:hover 
+{
+  font-weight: 700;
+}
+
+
+QWidget#batch_search_widget
+{
+  /* background-color: red; */
+}
+
+QWidget#batch_search_widget QLabel
+{
+  /* background-color: red; */
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;  
+}
+
+QWidget#batch_search_widget QLineEdit
+{
+  /* background-color: blue; */
+  /* border: none; */
+  border-radius: 4px;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  /* color: black; */
+  color: gray;
+  background-color: white;  
+}
+
+QWidget#batch_search_widget QPushButton
+{
+  /* background-color: yellow; */
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;  
+}
+
+QWidget#batch_search_widget QPushButton:hover 
+{
+  font-weight: 700;
+}
+
+QWidget#search_widget
+{
+}
+
+QWidget#search_widget QLabel
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;  
+}
+
+QWidget#search_widget QLineEdit
+{
+  /* border: none; */
+  border-radius: 4px;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  /* color: black; */
+  color: gray;
+  background-color: white;  
+}
+
+QWidget#search_widget QPushButton
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;  
+}
+
+QWidget#search_widget QPushButton:hover 
+{
+  font-weight: 700;
+}
+
+QWidget#search_result_widget
+{
+}
+
+QWidget#search_result_widget QTableWidget 
+{
+  background-color: rgba(255, 255, 255, 100);
+  border-radius: 10px;
+  border: 2px solid gray;
+  font: 24px;
+  /* font-family: 'FZSongKeBenXiuKaiS-R-GB';     */
+}
+
+QWidget#search_result_widget QTableWidget::item 
+{
+  background-color: rgba(255, 255, 255, 50);
+  border: none;
+  text-align: center;
+}
+
+QWidget#search_result_widget QHeaderView 
+{
+  background-color: rgba(255, 255, 255, 100);
+  border-radius: 10px;
+  border: none;  
+}
+
+QWidget#search_result_widget QHeaderView::section 
+{
+  background-color: rgba(255, 255, 255, 50);
+  border: none;
+  border-radius: 10px;
+  padding: 6px;
+  font-weight: bold;
+}
+
+
+QWidget#search_result_widget QLabel
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;  
+}
+
+QWidget#search_result_widget QLineEdit
+{
+  /* border: none; */
+  border-radius: 4px;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  /* color: black; */
+  color: gray;
+  background-color: white;  
+}
+
+QWidget#search_result_widget QPushButton
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;  
+}
+
+QWidget#search_result_widget QPushButton:hover 
+{
+  font-weight: 700;
+}
+
+QWidget#search_keyword_result_widget
+{
+}
+
+QWidget#search_keyword_result_widget QTreeWidget 
+{
+  background-color: rgba(255, 255, 255, 100);
+  border-radius: 10px;
+  border: 2px solid gray;
+  font: 24px;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+}
+
+QWidget#search_keyword_result_widget QTreeWidget::item 
+{
+  background-color: rgba(255, 255, 255, 50);
+  /* border: none; */
+  text-align: center;
+}
+
+
+QWidget#search_keyword_result_widget QTreeWidget::branch:closed:has-children {
+    image: url(./img/collapsed_arrow2.png);
+}
+
+QWidget#search_keyword_result_widget QTreeWidget::branch:open:has-children {
+    image: url(./img/expanded_arrow2.png);
+}
+
+QWidget#search_keyword_result_widget QHeaderView 
+{
+  background-color: rgba(255, 255, 255, 100);
+  border-radius: 10px;
+  /* border: none;   */
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';  
+}
+
+QWidget#search_keyword_result_widget QHeaderView::section 
+{
+  background-color: rgba(255, 255, 255, 50);
+  /* border: none; */
+  padding: 6px;
+  font-weight: bold;
+  font: 24px;
+}
+
+
+QWidget#search_keyword_result_widget QLabel
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;  
+}
+
+QWidget#search_keyword_result_widget QComboBox
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;   
+}
+
+QWidget#search_keyword_result_widget QLineEdit
+{
+  /* border: none; */
+  border-radius: 4px;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  /* color: black; */
+  color: gray;
+  background-color: white;  
+}
+
+QWidget#search_keyword_result_widget QPushButton
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;  
+}
+
+QWidget#search_keyword_result_widget QPushButton:hover 
+{
+  font-weight: 700;
+}
+
+QWidget#more_fns_widget QLabel#bold_fn
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;  
+}
+
+QWidget#more_fns_widget QLabel#light_fn
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: gray;  
+}
+
+QWidget#contact_widget QLabel#gold_label
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: #F7D674;    
+}
+
+QWidget#contact_widget QLabel#white_label
+{
+  border: none;
+  font-family: 'FZSongKeBenXiuKaiS-R-GB';
+  font-size: 42px;
+  color: white;    
+}

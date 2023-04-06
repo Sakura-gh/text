@@ -1,0 +1,6 @@
+*.pptx
+test.py
+test.txt
+test2.xls
+*.swp
+__pycache__/*
