@@ -2,8 +2,9 @@ from PyQt5 import QtGui, QtWidgets, QtCore
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QGridLayout, \
   QHBoxLayout, QVBoxLayout, QPushButton, QDialog, QFrame, QLabel, QToolButton, \
   QFileDialog, QLineEdit, QScrollArea, QMessageBox, QTableWidget, QTableWidgetItem, \
-  QComboBox, QTreeWidget, QTreeWidgetItem, QHeaderView
-from PyQt5.QtGui import QCursor, QIcon, QPixmap, QFontDatabase, QFont, QPalette, QBrush, QColor
+  QComboBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QProgressDialog, QDialogButtonBox
+from PyQt5.QtGui import QCursor, QIcon, QPixmap, QFontDatabase, QFont, QPalette, QBrush, QColor, \
+  QTextCharFormat, QTextCursor, QTextDocument
 from PyQt5.QtCore import Qt, pyqtSignal
 
 import os
@@ -11,20 +12,31 @@ import sys
 import csv
 import ctypes
 import shutil
+import copy
+
+from os import listdir, path, makedirs
+import pandas as pd
+from xlrd import open_workbook
+from xlwt import Workbook
+from xlsxwriter.workbook import Workbook as xlsWorkbook
+import docx
+import PyPDF2
 
 class Keyword:
-  def __init__(self, keyword='检索词', folder=None, file=None, data=None):
+  def __init__(self, keyword='检索词', df=None):
     self.keyword = keyword
+    self.df = df
+
     # data: {明代: {{明代-M: [sample1, sample2, ...]}, {明代-N: [sample1, sample2, ...], ...}}, 清代: {{清代-O: [sample1, sample2, ...]}, {清代-P: [sample1, sample2, ...]}}, ...}
     # self.data = {'明代': {{'明代-M': ['sample1', 'sample2', '...']}, {'明代-N': ['sample1', 'sample2', '...']}}, '清代': {{'清代-O': ['sample1', 'sample2', '...']}, {'清代-P': ['sample1', 'sample2', '...']}}}
     self.folder = ['明代', '清代']
     self.file = {'明代': ['明代-M', '明代-N'], '清代': ['清代-O', '清代-P']}
     self.data = {'明代-M': ['sample1', 'sample2', '...'], '明代-N': ['sample1', 'sample2', '...'], '清代-O': ['sample1', 'sample2', '...'], '清代-P': ['sample1', 'sample2', '...']}
 
-  def get_folder(self):
+  def get_corpus(self):
     return self.folder
   
-  def get_file(self):
+  def get_label(self):
     return self.file
   
   def get_data(self):
@@ -37,9 +49,47 @@ class ClickedLineEdit(QLineEdit):
       self.clicked.emit()
       # print('clicked')
 
+class ThresholdDialog(QDialog):
+  def __init__(self, parent=None):
+    super().__init__(parent)
+    self.setWindowTitle('真值表阈值')
+    # 创建两个标签和两个文本框，设置默认值
+    self.threshold1_label = QLabel('阈值1')
+    self.threshold1_edit = QLineEdit()
+    self.threshold1_edit.setText('0.3')
+
+    self.threshold2_label = QLabel('阈值2')
+    self.threshold2_edit = QLineEdit()
+    self.threshold2_edit.setText('0.6')
+
+    # 添加两个按钮：确定和取消
+    self.buttons = QDialogButtonBox(
+        QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+        parent=self)
+    self.buttons.accepted.connect(self.accept)
+    self.buttons.rejected.connect(self.reject)
+
+    # 将标签和编辑框添加到布局中
+    layout = QVBoxLayout()
+    layout.addWidget(self.threshold1_label)
+    layout.addWidget(self.threshold1_edit)
+    layout.addWidget(self.threshold2_label)
+    layout.addWidget(self.threshold2_edit)
+    layout.addWidget(self.buttons)
+
+    # 将布局设置为对话框的主布局
+    self.setLayout(layout)
+
+  # 定义一个方法，用于在调用对话框时获取阈值值
+  def get_thresholds(self):
+    threshold1 = float(self.threshold1_edit.text())
+    threshold2 = float(self.threshold2_edit.text())
+    return threshold1, threshold2
+
 class GUI(QMainWindow):
   def __init__(self):
     super(GUI, self).__init__()
+    self.m_flag = False
     self.load_font()
     self.init_ui()
 
@@ -68,6 +118,7 @@ class GUI(QMainWindow):
     self.init_search_view()
     self.init_search_result_view()
     self.init_search_keyword_result_view()
+    self.init_chart_generate_view()
     self.init_batch_search_view()
     self.init_more_fns_view()
     self.init_contact_view()
@@ -84,6 +135,9 @@ class GUI(QMainWindow):
  
 
   def init_first_page_view(self):
+    '''
+    首页：包括上方缩放按钮、导航栏 + 下方背景图片
+    '''
     self.first_page_widget = QWidget()
     # self.first_page_widget.setAttribute(Qt.WA_TranslucentBackground)
     self.first_page_widget.setObjectName('first_page_widget')
@@ -183,6 +237,7 @@ class GUI(QMainWindow):
     self.background_layout.addWidget(self.search_widget, 1, 0, 9, 26)
     self.background_layout.addWidget(self.search_result_widget, 1, 0, 9, 26)
     self.background_layout.addWidget(self.search_keyword_result_widget, 1, 0, 9, 26)
+    self.background_layout.addWidget(self.chart_generate_widget, 1, 0, 9, 26)
     self.background_layout.addWidget(self.batch_search_widget, 1, 0, 9, 26)
     self.background_layout.addWidget(self.more_fns_widget, 1, 0, 9, 26)
     self.background_layout.addWidget(self.contact_widget, 1, 0, 9, 26)
@@ -191,6 +246,9 @@ class GUI(QMainWindow):
     self.background_widget.hide()
   
   def init_corpus_view(self):
+    '''
+    自定语料页面
+    '''
     self.corpus_widget = QWidget()
     self.corpus_widget.setObjectName('corpus_widget')
     self.corpus_layout = QGridLayout()
@@ -268,8 +326,6 @@ class GUI(QMainWindow):
 
     self.corpus_widget.hide()
          
-
-
   def init_search_view(self):
     # QTable: https://www.cnblogs.com/aloe-n/p/8721590.html
     self.search_widget = QWidget()
@@ -277,30 +333,33 @@ class GUI(QMainWindow):
     self.search_layout = QGridLayout()
     self.search_widget.setLayout(self.search_layout)
 
-    # new
     corpus_folder_path_label = QLabel('读取语料库文件夹: ')
     corpus_folder_path_edit = ClickedLineEdit('点击选择文件夹路径')
-    corpus_folder_path_edit.setObjectName('corpus_folder_path')
-    corpus_folder_path_edit.clicked.connect(lambda: self.corpus_folder_path_choose(None))
+    corpus_folder_path_edit.setObjectName('corpus_folder_path_for_search')
+    # corpus_folder_path_edit.clicked.connect(self.corpus_folder_path_choose_for_search) # 放到"检索结果保存文件夹"控件的后面去
 
     search_word_label = QLabel('检索词列: ')
     search_keyword_edit = QLineEdit('关键词')
-    search_txt_edit = ClickedLineEdit('txt文档路径')
-    search_txt_edit.clicked.connect(self.path_choose)
+    search_txt_edit = ClickedLineEdit('关键词文件路径')
+    search_txt_edit.clicked.connect(self.path_choose) # 最终的关键词 = QLineEdit里填入的keyword + 多个txt文档路径里的keyword集合
 
     context_num_label = QLabel('上下文字数: ')
-    context_num_edit = QLineEdit('')
+    context_num_edit = QLineEdit('30')
 
     search_result_folder_path_label = QLabel('检索结果保存文件夹: ')
-    search_result_folder_path_edit = ClickedLineEdit('result')
+    search_result_folder_path_edit = ClickedLineEdit('文件夹路径')
+    # 这里默认检索结果文件的命名方式为"检索结果-{编号}", 其中编号依次递增
     search_result_folder_path_edit.clicked.connect(self.folder_path_choose)
+    corpus_folder_path_edit.clicked.connect(lambda: self.corpus_folder_path_choose_for_search(search_result_folder_path_edit))    
 
-    read_exist_result_path_label = QLabel('读取已有检索结果文件: ')
-    read_exist_result_path_edit = ClickedLineEdit('exist result')
-    read_exist_result_path_edit.clicked.connect(self.path_choose)
+    read_exist_result_path_label = QLabel('读取已有检索结果文件夹: ')
+    read_exist_result_path_edit = ClickedLineEdit('已有检索结果文件夹路径')
+    read_exist_result_path_edit.clicked.connect(self.folder_path_choose)
 
     search_button = QPushButton('检 索')
-    search_button.clicked.connect(self.search_result)
+    search_button.clicked.connect(lambda: self.search_result(
+      corpus_folder_path_edit, search_keyword_edit, search_txt_edit, 
+      context_num_edit, search_result_folder_path_edit, read_exist_result_path_edit))
 
     placeholder1 = QLabel()
     placeholder2 = QLabel()
@@ -332,14 +391,17 @@ class GUI(QMainWindow):
     bar_layout = QHBoxLayout()
     bar_widget.setLayout(bar_layout)
 
-    add_exist_result_path_label = QLabel('增加已有检索结果文件: ')
-    add_exist_result_path_edit = ClickedLineEdit('exist result')
-    add_exist_result_path_edit.clicked.connect(self.path_choose)
-    fresh_button = QPushButton('刷新')   
+    search_result_file_label = QLabel('检索结果文件夹: ')
+    self.search_result_folder_edit = ClickedLineEdit('exist result')
+    self.search_result_folder_edit.clicked.connect(self.folder_path_choose)
+    fresh_button = QPushButton('刷新')
+    fresh_button.clicked.connect(self.fresh_search_result_table)
     return_search_view_buttion = QPushButton('返回检索界面')
+    return_search_view_buttion.clicked.connect(self.search)    
     generate_chart_button = QPushButton('图表生成')
-    bar_layout.addWidget(add_exist_result_path_label)
-    bar_layout.addWidget(add_exist_result_path_edit)
+    generate_chart_button.clicked.connect(lambda: self.generate_chart('choose'))
+    bar_layout.addWidget(search_result_file_label)
+    bar_layout.addWidget(self.search_result_folder_edit)
     bar_layout.addWidget(QLabel())
     bar_layout.addWidget(fresh_button)
     bar_layout.addWidget(QLabel())
@@ -347,47 +409,13 @@ class GUI(QMainWindow):
     bar_layout.addWidget(QLabel())
     bar_layout.addWidget(generate_chart_button)
 
-    rows = []
-    with open('test.csv', 'r', encoding='utf-8') as file:
-      csv_reader = csv.reader(file)
-      for row in csv_reader:
-        rows.append(row)
-    search_result_table = QTableWidget()
-    search_result_table.setColumnCount(len(rows[0]))
-    search_result_table.setRowCount(len(rows))
-    for i, row in enumerate(rows):
-      for j, item in enumerate(row):
-        table_item = QTableWidgetItem(item)
-        # 第一行 or 第一列显示为白色
-        if i == 0 or j == 0:
-          font = QFont()
-          font.setBold(True)
-          table_item.setFont(font)
-          table_item.setForeground(QBrush(QColor(255, 255, 255)))
-        # 检索词显示蓝色
-        if j == 1 and i > 0:
-          table_item.setForeground(QBrush(QColor(0, 0, 255)))
-
-        # qss实现居中失效, 直接在这里写吧...
-        table_item.setTextAlignment(QtCore.Qt.AlignCenter)
-        search_result_table.setItem(i, j, table_item)
-    search_result_table.cellClicked.connect(lambda row, col: self.search_keyword_result(search_result_table.item(row, col).text()) if col == 1 else None)
-
-    search_result_table.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-    search_result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-    search_result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-    
-    search_result_table.horizontalHeader().hide()
-    search_result_table.verticalHeader().hide()
-    search_result_table.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignCenter)
-
-    
+    self.search_result_table = QTableWidget()    
     placehoder1 = QLabel()
     placehoder2 = QLabel()
     
     self.search_result_layout.addWidget(placehoder1, 0, 0, 1, 12)
     self.search_result_layout.addWidget(bar_widget, 2, 1, 2, 10)
-    self.search_result_layout.addWidget(search_result_table, 4, 1, 12, 10)
+    self.search_result_layout.addWidget(self.search_result_table, 4, 1, 12, 10)
     self.search_result_layout.addWidget(placehoder2, 16, 0, 2, 12)
 
     self.search_result_widget.hide()
@@ -402,17 +430,22 @@ class GUI(QMainWindow):
     bar_layout = QHBoxLayout()
     bar_widget.setLayout(bar_layout)
 
-    cur_keyword = QLabel('当前检索词')
+    self.cur_keyword = QLabel('当前检索词')
     fresh_button = QPushButton('刷新')
+    fresh_button.clicked.connect(lambda: self.fresh_keyword_details_view(self.cur_keyword.text()))
     generate_chart_button = QPushButton('图表生成')
+    generate_chart_button.clicked.connect(lambda: self.generate_chart('choose'))
     return_search_result_buttion = QPushButton('返回检索结果列表')
+    return_search_result_buttion.clicked.connect(self.return_to_search_result)
     last_keyword_button = QPushButton('上一词')
+    last_keyword_button.clicked.connect(self.last_keyword_result)
     next_keyword_button = QPushButton('下一词')
-    jump_keyword_box = QComboBox()
-    jump_keyword_box.addItem('a')
-    jump_keyword_box.addItem('b')
-    jump_keyword_box.addItem('c')
-    bar_layout.addWidget(cur_keyword)
+    next_keyword_button.clicked.connect(self.next_keyword_result)
+    self.jump_keyword_box = QComboBox()
+    self.jump_keyword_box.activated.connect(self.jump_to_keyword_result)
+    # 设置背景透明
+    self.jump_keyword_box.setStyleSheet("QComboBox { background-color: transparent; border: none; }")
+    bar_layout.addWidget(self.cur_keyword)
     bar_layout.addWidget(QLabel())
     bar_layout.addWidget(fresh_button)
     bar_layout.addWidget(QLabel())
@@ -424,77 +457,57 @@ class GUI(QMainWindow):
     bar_layout.addWidget(QLabel())
     bar_layout.addWidget(next_keyword_button)
     bar_layout.addWidget(QLabel())
-    bar_layout.addWidget(jump_keyword_box)
+    bar_layout.addWidget(self.jump_keyword_box)
 
-    keyword = Keyword('检索词1')
-    folder = keyword.get_folder()
-    file = keyword.get_file()
-    data = keyword.get_data()
-    
-    ncol = 4
-    keyword_tree_table = QTreeWidget()
-    keyword_tree_table.setColumnCount(ncol)
-    keyword_tree_table.setHeaderLabels(['序号', '出处', '用例', '存留'])
-    nrow = 0
-    for _folder in folder:
-      root_folder_tree_table = QTreeWidgetItem(keyword_tree_table)
-      root_folder_tree_table.setText(1, _folder)
-      # 居中显示
-      for i in range(ncol):
-        root_folder_tree_table.setTextAlignment(i, Qt.AlignCenter)
-
-      num = 0
-      for _file in file[_folder]:
-        root_file_tree_table = QTreeWidgetItem(root_folder_tree_table)
-        root_file_tree_table.setText(1, _file)
-        root_file_tree_table.setText(2, f'共计 {len(data[_file])} 例')
-        # 居中显示
-        for i in range(ncol):
-          root_file_tree_table.setTextAlignment(i, Qt.AlignCenter)
-          
-        num += len(data[_file])
-        for _data in data[_file]:
-          nrow += 1
-          item = QTreeWidgetItem(root_file_tree_table)
-          item.setText(0, str(nrow))
-          item.setText(1, _file)
-          item.setText(2, _data)
-          item.setCheckState(3, Qt.Checked)
-          # 居中显示
-          for i in range(ncol):
-            item.setTextAlignment(i, Qt.AlignCenter)
-            
-      root_folder_tree_table.setText(2, f'共计 {num} 例')
-
-    keyword_tree_table.header().setDefaultAlignment(Qt.AlignCenter)
-    keyword_tree_table.header().setSectionResizeMode(QHeaderView.Stretch)
-    # keyword_tree_table.header().setSectionResizeMode(QHeaderView.ResizeToContents)
-
-    # # 居中显示
-    # for i in range(keyword_tree_table.columnCount()):
-    #   folder = keyword_tree_table.headerItem()
-    #   # keyword_tree_table.item
-    #   folder.setTextAlignment(i, QtCore.Qt.AlignCenter)
-
-    # # for item in folder.findItems("", QtCore.Qt.MatchContains):
-    # #   for i in range(item.columnCount()):
-    # #     item.setTextAlignment(i, QtCore.Qt.AlignCenter)
-
-    # for item in keyword_tree_table.findItems("", QtCore.Qt.MatchContains):
-    #   for i in range(item.columnCount()):
-    #     item.setTextAlignment(i, QtCore.Qt.AlignCenter)
-
-
+    self.keyword_tree_table = QTreeWidget()
+    self.keyword_tree_table_state_map = {} # 两级map: {keyword: {row: state}}
+    self.keyword_tree_table.itemChanged.connect(self.filter_search_result) # 初始化的时候创建槽函数链接, 后续只需在更新表的前后进行block/non-block即可
     placehoder1 = QLabel()
     placehoder2 = QLabel()
     
     self.search_keyword_result_layout.addWidget(placehoder1, 0, 0, 1, 12)
     self.search_keyword_result_layout.addWidget(bar_widget, 2, 1, 2, 10)
-    self.search_keyword_result_layout.addWidget(keyword_tree_table, 4, 1, 12, 10)
+    self.search_keyword_result_layout.addWidget(self.keyword_tree_table, 4, 1, 12, 10)
     self.search_keyword_result_layout.addWidget(placehoder2, 16, 0, 2, 12)
 
     self.search_keyword_result_widget.hide()
 
+  def init_chart_generate_view(self):
+    self.chart_generate_widget = QWidget()
+    self.chart_generate_widget.setObjectName('chart_generate_widget')
+    self.chart_generate_layout = QGridLayout()
+    self.chart_generate_widget.setLayout(self.chart_generate_layout)
+
+    bar_widget = QWidget()
+    bar_layout = QHBoxLayout()
+    bar_widget.setLayout(bar_layout)
+    numerical_chart_button = QPushButton('生成数值表')
+    numerical_chart_button.clicked.connect(lambda: self.generate_chart('num'))
+    truth_value_chart_button = QPushButton('生成真值表')
+    truth_value_chart_button.clicked.connect(lambda: self.generate_chart('truth'))
+    export_chart_button = QPushButton('导出图表')
+    export_chart_button.clicked.connect(self.export_chart)
+    return_search_keyword_result_buttion = QPushButton('返回检索词结果列表')
+    return_search_keyword_result_buttion.clicked.connect(self.return_to_search_keyword_result)
+    bar_layout.addWidget(numerical_chart_button)
+    bar_layout.addWidget(QLabel())
+    bar_layout.addWidget(truth_value_chart_button)
+    bar_layout.addWidget(QLabel())
+    bar_layout.addWidget(export_chart_button)
+    bar_layout.addWidget(QLabel())
+    bar_layout.addWidget(return_search_keyword_result_buttion)
+
+    self.chart = QTableWidget()
+
+    placeholder1 = QLabel()
+    placeholder2 = QLabel()
+
+    self.chart_generate_layout.addWidget(placeholder1, 0, 0, 1, 12)
+    self.chart_generate_layout.addWidget(bar_widget, 2, 1, 2, 10)
+    self.chart_generate_layout.addWidget(self.chart, 4, 1, 12, 10)
+    self.chart_generate_layout.addWidget(placeholder2, 16, 0, 2, 12)
+
+    self.chart_generate_widget.hide()
 
   def init_batch_search_view(self):
     self.batch_search_widget = QWidget()
@@ -636,6 +649,7 @@ class GUI(QMainWindow):
     self.search_widget.hide()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.hide()
     self.contact_widget.hide()
@@ -648,6 +662,7 @@ class GUI(QMainWindow):
     self.search_widget.hide()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.hide()
     self.contact_widget.hide()
@@ -660,36 +675,580 @@ class GUI(QMainWindow):
     self.search_widget.show()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.hide()
     self.contact_widget.hide()
 
-  def search_result(self):
-    print('search result')
+  # from search page (first in)
+  def search_result(self, corpus_folder_path_edit, 
+                    search_keyword_edit, 
+                    search_txt_edit, context_num_edit, 
+                    search_result_folder_path_edit, 
+                    read_exist_result_path_edit):
+    print('search result begin...')
+    exist_result_folder = read_exist_result_path_edit.text()
+    if exist_result_folder == '已有检索结果文件夹路径':
+      corpus_folder = corpus_folder_path_edit.text()
+      search_keyword = search_keyword_edit.text()
+      search_keyword_txts = search_txt_edit.text()
+      search_keywords = []
+      if search_keyword != '关键词':
+        # keyword之间既可以用空格隔开, 也可以用,隔开
+        if ',' in search_keyword:
+          search_keyword = search_keyword.split(',')
+        else:
+          search_keyword = search_keyword.split()
+        for keyword in search_keyword:
+          search_keywords.append(keyword.strip())
+      if search_keyword_txts != '关键词文件路径':
+        search_keyword_txts = search_keyword_txts.split(', ')
+        for search_keyword_txt in search_keyword_txts:
+          with open(search_keyword_txt, 'r', encoding='utf-8') as file:
+            for line in file.readlines():
+              # 目前要求每个关键词都是独立的一行
+              search_keywords.append(line.strip())
+      context_num = context_num_edit.text()
+      save_folder = search_result_folder_path_edit.text()
+      if corpus_folder == '点击选择文件夹路径' or len(search_keywords) == 0 or context_num.isdigit() == False:
+        QMessageBox.critical(self, '检索结果', '请完整填写检索信息!')
+        return
+      self.search_keyword_from_corpus(corpus_folder, search_keywords, int(context_num), save_folder)
+      QMessageBox.information(self, '检索结果', f'已生成结果检索文件至{save_folder}!', QMessageBox.Ok)
+      self.search_result_folder_edit.setText(save_folder)
+    else:
+      # 第一次进入时会继承从search page中传过来的值
+      self.search_result_folder_edit.setText(exist_result_folder)
+
+    print('search result end...')
+    self.fresh_search_result_table()
+
     self.first_page_widget.hide()
     self.background_widget.show()
     self.corpus_widget.hide()
     self.search_widget.hide()
     self.search_result_widget.show()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.hide()
     self.contact_widget.hide()
 
+  def fresh_search_result_table(self):
+    # 更新keywords及其对应的在每个folder/label下的出现次数; 注意, 所有涉及到keywords/keyword的全局变量都需要修改
+    self.search_result_df, csv_path = self.search_result_statistics_dataframe(self.search_result_folder_edit.text())
+    self.search_result_df_for_filter = copy.deepcopy(self.search_result_df)
+    # 删除"总计"列
+    self.search_result_df_for_filter.drop(columns=['总计'], inplace=True)
+    # 更新单个keyword详情页中的keywords列表
+    self.jump_keyword_box.clear()
+    self.jump_keyword_box.addItems(self.search_result_df['检索词'].tolist())
+
+    rows = []
+    with open(csv_path, 'r', encoding='utf-8') as file:
+      csv_reader = csv.reader(file)
+      for row in csv_reader:
+        rows.append(row)
+    
+    self.search_result_table.clear()
+    self.search_result_table.setColumnCount(len(rows[0]))
+    self.search_result_table.setRowCount(len(rows))
+    for i, row in enumerate(rows):
+      for j, item in enumerate(row):
+        item = '序号' if i == 0 and j == 0 else item
+        table_item = QTableWidgetItem(item)
+        font = QFont()
+        # font.setPointSize(12)
+        # 第一行 or 第一列显示为白色
+        if i == 0 or j == 0:
+          font.setBold(True)
+          table_item.setForeground(QBrush(QColor(255, 255, 255)))
+        # 检索词显示蓝色
+        if j == 1 and i > 0:
+          table_item.setForeground(QBrush(QColor(0, 0, 255)))
+
+        table_item.setFont(font)
+        # qss实现居中失效, 直接在这里写吧...
+        table_item.setTextAlignment(QtCore.Qt.AlignCenter)
+        # font.setPointSize(32)
+        self.search_result_table.setItem(i, j, table_item)
+    self.search_result_table.cellClicked.connect(lambda row, col: self.search_keyword_result(self.search_result_table.item(row, col).text()) if col == 1 else None)
+
+    # 宽度自适应以填充整个窗口
+    self.search_result_table.resizeColumnsToContents()
+    self.search_result_table.resizeRowsToContents()
+    # self.search_result_table.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+    self.search_result_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+    # self.search_result_table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+    
+    self.search_result_table.horizontalHeader().hide()
+    self.search_result_table.verticalHeader().hide()
+    self.search_result_table.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignCenter)
+
+  # from later pages
+  def return_to_search_result(self):
+    self.first_page_widget.hide()
+    self.background_widget.show()
+    self.corpus_widget.hide()
+    self.search_widget.hide()
+    self.search_result_widget.show()
+    self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
+    self.batch_search_widget.hide()
+    self.more_fns_widget.hide()
+    self.contact_widget.hide()    
+
+  def read_file(self, file_path):
+    if file_path.endswith('.txt'):
+      with open(file_path, 'r', encoding='utf-8') as fp:
+        content = fp.read()
+    elif file_path.endswith('.docx'):
+      doc = docx.Document(file_path)
+      content = '\n'.join([p.text for p in doc.paragraphs])
+    elif file_path.endswith('.pdf'):
+      with open(file_path, 'rb') as fp:
+        reader = PyPDF2.PdfReader(fp)
+        content = '\n'.join([page.extract_text() for page in reader.pages])
+    else:
+      raise ValueError('Unsupported file format')
+    return content
+
+  def search_keyword_from_corpus(self, corpus_folder, keywords, length, save_folder, corpus_labels=None):
+    print(f'begin search: corpus_folder = {corpus_folder}, keywords = {keywords}, length = {length}, save_folder = {save_folder}')
+    if(path.exists(save_folder) and len(listdir(save_folder)) > 0):
+      ret = QMessageBox.information(self, '检索结果', f'检索结果目录下已存在文件，可能会导致覆盖写入，是否继续？', QMessageBox.Yes | QMessageBox.No)
+      if ret == QMessageBox.No:
+        return
+
+    if corpus_labels is None:
+      corpus_labels = []
+      all_labels = listdir(corpus_folder)
+      for corpus_label in all_labels:
+        if '检索结果' not in corpus_label and '图表生成' not in corpus_label:
+          corpus_labels.append(corpus_label)
+    makedirs(save_folder, exist_ok=True)
+    for i in keywords:
+      workbook = xlsWorkbook(str(save_folder)+'/'+str(i)+'.xls')
+      worksheet = workbook.add_worksheet('Sheet1')
+      colorstyle = workbook.add_format({'color': 'red', 'bold': True}) #关键词字体样式
+      row = 0
+      for j in corpus_labels:
+        filelist = listdir(str(corpus_folder)+'/'+str(j))
+        for k in filelist:
+          file_path = str(corpus_folder)+'/'+str(j)+'/'+k
+          if not os.path.isfile(file_path):
+            print(f"warning: there exists folder {file_path} under {str(corpus_folder) + '/' + str(j)}")
+            continue
+          # fp = open(file_path, 'r+', encoding='utf-8')
+          # ch = fp.read()
+          # fp.close()
+          ch = self.read_file(file_path)
+          index1 = 0
+          while True:
+            index2 = ch.find(str(i), index1)
+            if(index2 == -1):
+              break
+            worksheet.write(row, 0, str(j)+'-'+str(k[:-4]))
+            worksheet.write(row, 1, i)
+            worksheet.write_rich_string(row, 2, ch[index2-length:index2], colorstyle, ch[index2:index2+len(str(i))], ch[index2+len(str(i)):index2+len(str(i))+length])
+            row += 1
+            index1 = index2 + 1
+      workbook.close()    
+
+  def search_result_statistics_dataframe(self, search_result_folder):
+    filelist = listdir(search_result_folder)
+    keyword_search_map = {}
+    for i in filelist:
+      name = i[:-4]
+      workbook1 = open_workbook(str(search_result_folder)+'/'+str(i))
+      worksheet1 = workbook1.sheet_by_index(0)
+      dic = {}
+      for j in range(worksheet1.nrows):
+        if(worksheet1.cell_value(j, 0) not in dic):
+          dic[worksheet1.cell_value(j, 0)] = 1
+        else:
+          dic[worksheet1.cell_value(j, 0)] += 1
+      keyword_search_map[i.split('.')[0]] = dic
+    
+    # convert keyword_search_map to pandas table
+    def convert_to_dataframe(keyword_search_map):
+      # 创建空的 DataFrame
+      df = pd.DataFrame()
+
+      # 遍历关键字及其统计信息
+      for keyword, file_stats in keyword_search_map.items():
+        # 获取文件名和出现次数
+        file_names = list(file_stats.keys())
+        file_counts = list(file_stats.values())
+        # 创建临时 DataFrame
+        temp_df = pd.DataFrame({'检索词': keyword, 'File Name': file_names, 'Count': file_counts})
+        # 将临时 DataFrame 追加到主 DataFrame
+        df = df.append(temp_df, ignore_index=True)
+
+      # 进行数据透视，以便将文件名作为列，没有出现的次数填充为 0
+      df_pivot = df.pivot(index=['检索词'], columns='File Name', values='Count').fillna(0)
+      # 将values转为int类型
+      df_pivot = df_pivot.astype(int)
+      # 重置索引，并设置列名称
+      df_pivot = df_pivot.reset_index()
+      # 去除第一列的行序号
+      df_pivot.index = df_pivot.index + 1
+      df_pivot.columns.name = '序号'
+      df_pivot['总计'] = df_pivot.iloc[:, 1:].sum(axis=1)      
+      return df_pivot
+
+    df = convert_to_dataframe(keyword_search_map)
+    # 导出df为csv, 目前只是tmp的保存路径
+    csv_path = './检索结果统计.csv'
+    df.to_csv(csv_path, encoding='utf-8')
+    print(df)
+    return df, csv_path
+  
+  # from search result page (first in)
   def search_keyword_result(self, keyword):
     print(f'search keyword result: keyword = {keyword}')
+    self.cur_keyword.setText(keyword)
+    self.fresh_keyword_details_view(keyword)
     self.first_page_widget.hide()
     self.background_widget.show()
     self.corpus_widget.hide()
     self.search_widget.hide()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.show()
+    self.chart_generate_widget.hide()
+    self.batch_search_widget.hide()
+    self.more_fns_widget.hide()
+    self.contact_widget.hide()
+
+  # from later pages
+  def return_to_search_keyword_result(self):
+    # 如果没有点击过keyword进入细节页面, 则直接返回检索的初步结果
+    if self.cur_keyword.text() == '当前检索词':
+      print('未进入过keyword细节页面, 直接返回初级检索结果页面')
+      self.return_to_search_result()
+      return
+    self.first_page_widget.hide()
+    self.background_widget.show()
+    self.corpus_widget.hide()
+    self.search_widget.hide()
+    self.search_result_widget.hide()
+    self.search_keyword_result_widget.show()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.hide()
     self.contact_widget.hide()    
+
+  def fresh_keyword_details_view(self, keyword):
+    '''
+    return: 举例:
+    corpus = ['明代', '清代']
+    labels = {'明代': ['明代-M', '明代-N'], '清代': ['清代-O', '清代-P']}
+    datas = {'明代-M': ['sample1', 'sample2', '...'], '明代-N': ['sample1', 'sample2', '...'], '清代-O': ['sample1', 'sample2', '...'], '清代-P': ['sample1', 'sample2', '...']}
+    '''
+    wait_message_box = QMessageBox(QMessageBox.Information, "关键词处理中...", f"正在处理 {keyword} 相关数据, 请稍等...")
+    wait_message_box.setStandardButtons(QMessageBox.NoButton)
+    wait_message_box.show()
+
+    # 更新keyword下拉框的值
+    self.jump_keyword_box.setCurrentIndex(self.jump_keyword_box.findText(keyword))
+    # 读取keyword对应的xls检索结果文件
+    keyword_xls_path = self.search_result_folder_edit.text() + '/' + keyword + '.xls'
+    keyword_xls_df = pd.read_excel(keyword_xls_path)
+
+    keyword_row = self.search_result_df[self.search_result_df['检索词'] == keyword]
+    total_labels = keyword_row.columns.tolist()[1:-1]
+    total_values = keyword_row.values.tolist()[0][1:-1]
+    print(f'total_labels = {total_labels}')
+    print(f'total_values = {total_values}')
+    labels = {}
+    datas = {}
+    for label, value in zip(total_labels, total_values):
+      if value > 0:
+        corpus = label.split('-')[0]
+        if corpus not in labels:
+          labels[corpus] = [label]
+        else:
+          labels[corpus].append(label)          
+        # 从xls检索结果中读取label对应的data，并建立map
+        data_df = keyword_xls_df[keyword_xls_df.iloc[:, 0] == label].iloc[:, 2]
+        # 由于后端生成xls的代码写的不好, 这里只能这么操作了, name本来应该是实际的第一行数据
+        if len(datas) == 0:
+          datas[label] = [data_df.name]
+          datas[label] += data_df.values.tolist()
+        else:
+          datas[label] = data_df.values.tolist()
+    corpuss = list(labels.keys())
+    # return corpuss, labels, datas
+    folder = corpuss
+    file = labels
+    data = datas
+    print(f'folder = {folder}')
+    print(f'file = {file}')
+    # print(f'data = {data}')
+
+    # 重新生成keyword_tree_table的内容
+    ncol = 3
+    # 先屏蔽信号, 等表格内容更新完了再恢复
+    self.keyword_tree_table.blockSignals(True)
+    # 屏蔽信号后先清理原先的表格内容
+    self.keyword_tree_table.clear()
+    # 然后开始重新设置表格内容
+    self.keyword_tree_table.setColumnCount(ncol)
+    self.keyword_tree_table.setHeaderLabels(['序号', '出处', '用例'])
+    nrow = 0
+    if keyword not in self.keyword_tree_table_state_map:
+      self.keyword_tree_table_state_map[keyword] = {}
+    for _folder in folder:
+      root_folder_tree_table = QTreeWidgetItem(self.keyword_tree_table)
+      root_folder_tree_table.setText(1, _folder)
+      # 居中显示
+      for i in range(ncol):
+        root_folder_tree_table.setTextAlignment(i, Qt.AlignCenter)
+
+      num = 0
+      for _file in file[_folder]:
+        root_file_tree_table = QTreeWidgetItem(root_folder_tree_table)
+        root_file_tree_table.setText(1, _file)
+        root_file_tree_table.setText(2, f'共计 {len(data[_file])} 例')
+        # 居中显示
+        for i in range(ncol):
+          root_file_tree_table.setTextAlignment(i, Qt.AlignCenter)
+          
+        num += len(data[_file])
+        for _data in data[_file]:
+          nrow += 1
+          item = QTreeWidgetItem(root_file_tree_table)
+          item.setText(0, str(nrow))
+          # 如果之前没有记录过这个keyword的这个nrow的状态, 则默认初始化为True; 否则, 用之前保存的状态
+          if nrow not in self.keyword_tree_table_state_map[keyword]:
+            self.keyword_tree_table_state_map[keyword][nrow] = True
+            item.setCheckState(0, Qt.Checked)
+          else:
+            item.setCheckState(0, Qt.Checked if self.keyword_tree_table_state_map[keyword][nrow] else Qt.Unchecked)
+          # 设置state改变的槽函数
+          item.setText(1, _file)
+          # 去掉所有的换行符和空格
+          text = _data.replace("\n", "").replace(" ", "")
+          # 用QTextEdit控件来表示文本内容，以做到高亮显示关键词的目的
+          text_edit = QtWidgets.QTextEdit(text)
+          # 限制文本显示的高度，如果超出指定高度则滚动显示
+          text_fixed_height = 80
+          text_edit.setFixedHeight(text_fixed_height)
+          # text_edit居中显示
+          text_edit.setAlignment(Qt.AlignCenter)
+          # text_edit设为不可编辑
+          text_edit.setReadOnly(True)
+          # 设置关键词的样式
+          highlight_text = keyword
+          keyword_format = QtGui.QTextCharFormat()
+          keyword_format.setForeground(QColor('red'))
+          keyword_format.setFontWeight(QFont.Bold)          
+          keyword_format.setBackground(QtGui.QBrush(QtGui.QColor("yellow")))
+          cursor = text_edit.textCursor()
+          while not cursor.isNull() and not cursor.atEnd():
+              cursor = text_edit.document().find(highlight_text, cursor)
+              if not cursor.isNull():
+                  cursor.mergeCharFormat(keyword_format)
+                  cursor.movePosition(QtGui.QTextCursor.NextWord)
+          # 将text_edit的样式设置为与item一样，即半透明
+          text_edit.setStyleSheet("QTextEdit { background-color: transparent; border: none; }")
+          item.setText(2, "")                           
+          item.treeWidget().setItemWidget(item, 2, text_edit)
+          # 居中显示
+          for i in range(ncol):
+            item.setTextAlignment(i, Qt.AlignCenter)
+            
+      root_folder_tree_table.setText(2, f'共计 {num} 例')
+    self.keyword_tree_table.header().setDefaultAlignment(Qt.AlignCenter)
+
+    # 更新完了, 恢复信号
+    self.keyword_tree_table.blockSignals(False) 
+
+    # 平均分配列宽
+    # self.keyword_tree_table.header().setSectionResizeMode(0, QHeaderView.Stretch)
+    # self.keyword_tree_table.header().setSectionResizeMode(1, QHeaderView.Stretch)
+    # self.keyword_tree_table.header().setSectionResizeMode(2, QHeaderView.Stretch)
+    # 自适应缩放列宽
+    self.keyword_tree_table.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+    self.keyword_tree_table.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+    self.keyword_tree_table.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+    
+    wait_message_box.close()  # 处理程序执行完毕后关闭消息框
   
+  def filter_search_result(self, item):
+    keyword = self.cur_keyword.text()
+    label = item.text(1)
+    # 防止误判, 要求label必须在self.search_result_df_for_filter的列中
+    # 这个bug会在啥也不点开直接切换下一个关键词时触发, 不知道tree table的itemChanged的触发条件是怎么判断的...
+    if label not in self.search_result_df_for_filter.columns.tolist():
+      return
+    if item.checkState(0) == Qt.Checked:
+      # self.search_result_df_for_filter检索词行为keyword，label列为label的值加1
+      self.keyword_tree_table_state_map[keyword][int(item.text(0))] = True
+      self.search_result_df_for_filter.loc[self.search_result_df_for_filter['检索词'] == keyword, label] += 1
+      # print(self.search_result_df_for_filter)
+      print(f'keyword {keyword}, label {label}: add')
+    else:
+      # self.search_result_df_for_filter检索词行为keyword，label列为label的值减1
+      self.keyword_tree_table_state_map[keyword][int(item.text(0))] = False
+      self.search_result_df_for_filter.loc[self.search_result_df_for_filter['检索词'] == keyword, label] -= 1
+      # print(self.search_result_df_for_filter)
+      print(f'keyword {keyword}, label {label}: sub')
+
+  def last_keyword_result(self):
+    keywords = self.search_result_df['检索词'].tolist()
+    index_cur_keyword = keywords.index(self.cur_keyword.text())
+    last_keyword = keywords[(index_cur_keyword + len(keywords) - 1) % len(keywords)] 
+    self.cur_keyword.setText(last_keyword)
+    self.fresh_keyword_details_view(last_keyword)
+
+  def next_keyword_result(self):
+    keywords = self.search_result_df['检索词'].tolist()
+    index_cur_keyword = keywords.index(self.cur_keyword.text())
+    next_keyword = keywords[(index_cur_keyword + 1) % len(keywords)] 
+    self.cur_keyword.setText(next_keyword)
+    self.fresh_keyword_details_view(next_keyword)
+
+  def jump_to_keyword_result(self, index):
+    keyword = self.jump_keyword_box.itemText(index)
+    self.cur_keyword.setText(keyword)
+    self.fresh_keyword_details_view(keyword)
+
+  def generate_chart(self, _type):
+    # print(f'_type = {_type}')
+    if _type == 'choose':
+      message_box = QMessageBox()
+      message_box.setWindowTitle('图表生成')
+      message_box.setText('请选择一个图表类型：')
+      message_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+      message_box.button(QMessageBox.Yes).setText('数值表')
+      message_box.button(QMessageBox.No).setText('真值表')
+      choice = message_box.exec_()
+    elif _type == 'num':
+      choice = QMessageBox.Yes
+    elif _type == 'truth':
+      choice = QMessageBox.No
+    else:
+      # 不可能走到这里
+      return
+
+    if choice == QMessageBox.Yes:
+      print('数值表')
+      self.chart_type = 'num'
+      self.fresh_chart_by_df(self.search_result_df_for_filter)
+      self.generate_table()
+    else:
+      print('真值表')
+      self.chart_type = 'truth'
+      dialog = ThresholdDialog()
+      if dialog.exec_() == QDialog.Accepted:
+        # 获取用户输入的阈值值
+        self.truth_threshold1, self.truth_threshold2 = dialog.get_thresholds()      
+      self.fresh_chart_by_df(self.get_truth_value_chart(self.truth_threshold1, self.truth_threshold2))
+      self.generate_table()
+
+  def get_truth_value_chart(self, threshold1=0.3, threshold2=0.6):
+    truth_value_df = copy.deepcopy(self.search_result_df_for_filter)
+    # 遍历每一行，获取不为0的value及其对应的列名，保存到map中
+    for index, row in truth_value_df.iterrows():
+      column_value_map = {}
+      for column in truth_value_df.columns:
+        # 跳过'检索词'列
+        if column == '检索词':
+          continue
+        if row[column] != 0:
+          column_value_map[column] = int(row[column])
+      # 对map按照value进行排序
+      column_value_sorted_list = sorted(column_value_map.items(), key=lambda x: x[1], reverse=False)
+      column_truth_map = {}
+      # 根据阈值获取真值表, column_value_sorted_list中index在[0, threshold1)范围内的, 在column_truth_map对应的值为'+', 
+      # 在[threshold1, threshold2)范围内的, 在column_truth_map对应的truth值为'++', 在[threshold2, len(column_value_sorted_list))范围内的,
+      # 在column_truth_map对应的truth值为'+++'
+      # th1 = int(threshold1 * len(column_value_sorted_list))
+      # th2 = int(threshold2 * len(column_value_sorted_list))
+      th1 = threshold1 * len(column_value_sorted_list)
+      th2 = threshold2 * len(column_value_sorted_list)      
+      for i, column_value in enumerate(column_value_sorted_list):
+        if i < th1:
+          column_truth_map[column_value[0]] = '+'
+        elif i < th2:
+          column_truth_map[column_value[0]] = '++'
+        else:
+          column_truth_map[column_value[0]] = '+++'
+      # 按照truth_value_df原先列的顺序将column_truth_map中的值更新到truth_value_df中, 如果key不存在, 则truth值为'-'
+      for column in truth_value_df.columns:
+        if column == '检索词':
+          continue
+        if column in column_truth_map:
+          truth_value_df.loc[index, column] = column_truth_map[column]
+        else:
+          truth_value_df.loc[index, column] = '-'
+    return truth_value_df
+
+  def fresh_chart_by_df(self, df):
+    self.chart.clear()
+    self.chart.setColumnCount(df.shape[1])
+    self.chart.setRowCount(df.shape[0])
+    
+    # 设置表头
+    headers = list(df.columns)
+    self.chart.setHorizontalHeaderLabels(headers)
+    
+    # 设置表格数据
+    for i in range(df.shape[0]):
+        for j in range(df.shape[1]):
+            item = QTableWidgetItem(str(df.iat[i, j]))
+            self.chart.setItem(i, j, item)
+ 
+    # 宽度自适应以填充整个窗口
+    self.chart.resizeColumnsToContents()
+    self.chart.resizeRowsToContents()
+    # self.chart.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+    self.chart.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+    # self.chart.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+    
+    # self.chart.horizontalHeader().hide()
+    self.chart.verticalHeader().hide()
+    self.chart.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignCenter)    
+
+  def export_chart(self):
+    export_df = None
+    if self.chart_type == 'num':
+      print('导出数值表')
+      export_df = self.search_result_df_for_filter
+    elif self.chart_type == 'truth':
+      print('导出真值表')
+      export_df = self.get_truth_value_chart(self.truth_threshold1, self.truth_threshold2)
+    else:
+      print('导出表格出错')
+      return
+    # 创建文件保存对话框，设置过滤器和初始路径
+    dialog = QFileDialog()
+    dialog.setFileMode(QFileDialog.AnyFile)
+    dialog.setNameFilter("Excel files (*.xlsx)")
+    # 显示对话框并获取用户选择的路径和文件名
+    file_path, _ = dialog.getSaveFileName(None, '保存为', '数值表' if self.chart_type == 'num' else '真值表', 'Excel files (*.xlsx)')
+
+    # 如果用户点击了“确定”按钮，则保存文件
+    if file_path:
+      export_df.to_excel(file_path, index=False)
+
+  # generate table是具体的图表页面, generate_chart是图表页面里的图表
   def generate_table(self):
     print('generate table')
+    if self.chart.rowCount() == 0 and self.chart.columnCount() == 0:
+      QMessageBox.critical(self, '图表生成', '请先通过检索生成图表数据!')
+      return
+    self.first_page_widget.hide()
+    self.background_widget.show()
+    self.corpus_widget.hide()
+    self.search_widget.hide()
+    self.search_result_widget.hide()
+    self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.show()
+    self.batch_search_widget.hide()
+    self.more_fns_widget.hide()
+    self.contact_widget.hide()    
 
   def batch_search(self):
     print('batch search')
@@ -699,6 +1258,7 @@ class GUI(QMainWindow):
     self.search_widget.hide()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.show()
     self.more_fns_widget.hide()
     self.contact_widget.hide()
@@ -712,6 +1272,7 @@ class GUI(QMainWindow):
     self.search_widget.hide()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.show()
     self.contact_widget.hide()
@@ -724,6 +1285,7 @@ class GUI(QMainWindow):
     self.search_widget.hide()
     self.search_result_widget.hide()
     self.search_keyword_result_widget.hide()
+    self.chart_generate_widget.hide()
     self.batch_search_widget.hide()
     self.more_fns_widget.hide()
     self.contact_widget.show()
@@ -913,6 +1475,15 @@ class GUI(QMainWindow):
     corpus_single_layout_new.addWidget(sub_corpus_widget_new)
 
     corpus_multi_layout.insertWidget(corpus_multi_layout.count() - 1, corpus_single_widget_new)
+
+  def corpus_folder_path_choose_for_search(self, search_result_folder_path_edit):
+    corpus_folder_path_edit = self.sender()
+    corpus_folder_path = QFileDialog.getExistingDirectory(self, "选择文件夹", "/")
+    if corpus_folder_path:
+      corpus_folder_path_edit.setText(corpus_folder_path)
+      print(f'cur corpus folder path for search: {corpus_folder_path}')
+      if search_result_folder_path_edit:
+        search_result_folder_path_edit.setText(corpus_folder_path + "/检索结果")
 
   def widget_delete(self, widget):
     widget.deleteLater()

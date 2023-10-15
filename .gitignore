@@ -1,6 +1,9 @@
 *.pptx
 test.py
-test.txt
-test2.xls
+*.csv
+*.xls
+*.xlsx
 *.swp
 __pycache__/*
+build/*
+dist/*
