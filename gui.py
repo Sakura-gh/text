@@ -2,10 +2,11 @@ from PyQt5 import QtGui, QtWidgets, QtCore
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QGridLayout, \
   QHBoxLayout, QVBoxLayout, QPushButton, QDialog, QFrame, QLabel, QToolButton, \
   QFileDialog, QLineEdit, QScrollArea, QMessageBox, QTableWidget, QTableWidgetItem, \
-  QComboBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QProgressDialog, QDialogButtonBox
+  QComboBox, QTreeWidget, QTreeWidgetItem, QHeaderView, QProgressDialog, QDialogButtonBox, \
+  QProgressBar
 from PyQt5.QtGui import QCursor, QIcon, QPixmap, QFontDatabase, QFont, QPalette, QBrush, QColor, \
   QTextCharFormat, QTextCursor, QTextDocument
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QRect
 
 import os
 import sys
@@ -21,6 +22,8 @@ from xlwt import Workbook
 from xlsxwriter.workbook import Workbook as xlsWorkbook
 import docx
 import PyPDF2
+import opencc
+from zhconv import convert as light_convert
 
 class Keyword:
   def __init__(self, keyword='检索词', df=None):
@@ -41,6 +44,43 @@ class Keyword:
   
   def get_data(self):
     return self.data
+
+
+class ProgressBar(QDialog):
+  def __init__(self, min_value=0, max_value=100, title='进度条'):
+    super(ProgressBar, self).__init__()
+    # Qdialog窗体的设置
+    self.resize(500, 32) # QDialog窗的大小
+    # 创建并设置 QProcessbar
+    self.progressBar = QProgressBar(self) # 创建
+    self.progressBar.setMinimum(min_value) #设置进度条最小值
+    self.progressBar.setMaximum(max_value)  # 设置进度条最大值
+    self.progressBar.setValue(0)  # 进度条初始值为0
+    self.setWindowTitle(self.tr(title))
+    self.progressBar.setGeometry(QRect(1, 3, 499, 28)) # 设置进度条在 QDialog 中的位置 [左，上，右，下]
+    self.show()
+
+  def set_value(self, value): # 任务进度
+    self.progressBar.setValue(value)
+    QApplication.processEvents()  # 实时刷新显示
+ 
+class Bar():
+  '''
+  task_number和 total_task_number都为 0 时，不显示当前进行的任务情况
+  task_number<total_task_number 都为整数，错误的设置将出现错误显示，暂未设置报错警告
+  '''
+  def __init__(self):
+    # self.app = QApplication(sys.argv) # 打开系统 app
+    self.progressbar = ProgressBar() # 初始化 ProcessBar实例
+
+  def set_value(self,task_number,total_task_number,i):
+    self.progressbar.setValue(str(task_number), str(total_task_number),i + 1)  # 更新进度条的值
+    QApplication.processEvents()  # 实时刷新显示
+
+  @property
+  def close(self):
+    self.progressbar.close()  # 关闭进度条
+    # self.app.exit() # 关闭系统 app
 
 class ClickedLineEdit(QLineEdit):
   clicked = pyqtSignal()
@@ -358,8 +398,13 @@ class GUI(QMainWindow):
 
     search_button = QPushButton('检 索')
     search_button.clicked.connect(lambda: self.search_result(
-      corpus_folder_path_edit, search_keyword_edit, search_txt_edit, 
-      context_num_edit, search_result_folder_path_edit, read_exist_result_path_edit))
+      corpus_folder_path_edit, search_keyword_edit, search_txt_edit, context_num_edit, 
+      search_result_folder_path_edit, read_exist_result_path_edit, False))
+
+    hans_search_button = QPushButton('简繁检索')
+    hans_search_button.clicked.connect(lambda: self.search_result(
+      corpus_folder_path_edit, search_keyword_edit, search_txt_edit, context_num_edit, 
+      search_result_folder_path_edit, read_exist_result_path_edit, True))
 
     placeholder1 = QLabel()
     placeholder2 = QLabel()
@@ -376,7 +421,9 @@ class GUI(QMainWindow):
     self.search_layout.addWidget(search_result_folder_path_edit, 7, 5, 2, 5)
     self.search_layout.addWidget(read_exist_result_path_label, 9, 2, 2, 3)
     self.search_layout.addWidget(read_exist_result_path_edit, 9, 5, 2, 5)
-    self.search_layout.addWidget(search_button, 11, 4, 2, 4)
+    # self.search_layout.addWidget(search_button, 11, 4, 2, 4)
+    self.search_layout.addWidget(search_button, 11, 4, 2, 2)
+    self.search_layout.addWidget(hans_search_button, 11, 6, 2, 2)
     self.search_layout.addWidget(placeholder2, 13, 0, 2, 12)
 
     self.search_widget.hide()
@@ -685,7 +732,8 @@ class GUI(QMainWindow):
                     search_keyword_edit, 
                     search_txt_edit, context_num_edit, 
                     search_result_folder_path_edit, 
-                    read_exist_result_path_edit):
+                    read_exist_result_path_edit,
+                    is_hans=False):
     print('search result begin...')
     exist_result_folder = read_exist_result_path_edit.text()
     if exist_result_folder == '已有检索结果文件夹路径':
@@ -713,7 +761,9 @@ class GUI(QMainWindow):
       if corpus_folder == '点击选择文件夹路径' or len(search_keywords) == 0 or context_num.isdigit() == False:
         QMessageBox.critical(self, '检索结果', '请完整填写检索信息!')
         return
-      self.search_keyword_from_corpus(corpus_folder, search_keywords, int(context_num), save_folder)
+      if is_hans:
+        print('简繁搜索...')
+      self.search_keyword_from_corpus(corpus_folder, search_keywords, int(context_num), save_folder, is_hans)
       QMessageBox.information(self, '检索结果', f'已生成结果检索文件至{save_folder}!', QMessageBox.Ok)
       self.search_result_folder_edit.setText(save_folder)
     else:
@@ -810,10 +860,12 @@ class GUI(QMainWindow):
         reader = PyPDF2.PdfReader(fp)
         content = '\n'.join([page.extract_text() for page in reader.pages])
     else:
-      raise ValueError('Unsupported file format')
+      # raise ValueError('Unsupported file format')
+      QMessageBox.information(self, '不支持的文件格式', f'不支持"{file_path}", 文件后缀必须以.txt, .docx, .pdf结尾!', QMessageBox.Yes)
+      content = ''
     return content
 
-  def search_keyword_from_corpus(self, corpus_folder, keywords, length, save_folder, corpus_labels=None):
+  def search_keyword_from_corpus(self, corpus_folder, keywords, length, save_folder, is_hans, corpus_labels=None):
     print(f'begin search: corpus_folder = {corpus_folder}, keywords = {keywords}, length = {length}, save_folder = {save_folder}')
     if(path.exists(save_folder) and len(listdir(save_folder)) > 0):
       ret = QMessageBox.information(self, '检索结果', f'检索结果目录下已存在文件，可能会导致覆盖写入，是否继续？', QMessageBox.Yes | QMessageBox.No)
@@ -827,6 +879,12 @@ class GUI(QMainWindow):
         if '检索结果' not in corpus_label and '图表生成' not in corpus_label:
           corpus_labels.append(corpus_label)
     makedirs(save_folder, exist_ok=True)
+    if is_hans:
+      converter = opencc.OpenCC('t2s.json') # 繁体转简体
+
+    progress_bar = ProgressBar(min_value=0, max_value=len(keywords)*len(corpus_label), title='检索进度')
+    cur_progress = 0
+    progress_bar.set_value(cur_progress)
     for i in keywords:
       workbook = xlsWorkbook(str(save_folder)+'/'+str(i)+'.xls')
       worksheet = workbook.add_worksheet('Sheet1')
@@ -842,10 +900,14 @@ class GUI(QMainWindow):
           # fp = open(file_path, 'r+', encoding='utf-8')
           # ch = fp.read()
           # fp.close()
-          ch = self.read_file(file_path)
+          ch = self.read_file(file_path) # 遍历单个文件得到的所有文本
+          ch_simple = copy.deepcopy(ch)
+          if is_hans:
+            # ch_simple = converter.convert(ch_simple) # opencc繁体转简体
+            ch_simple = light_convert(ch_simple, 'zh-hans')
           index1 = 0
           while True:
-            index2 = ch.find(str(i), index1)
+            index2 = ch_simple.find(str(i), index1)
             if(index2 == -1):
               break
             worksheet.write(row, 0, str(j)+'-'+str(k[:-4]))
@@ -853,7 +915,10 @@ class GUI(QMainWindow):
             worksheet.write_rich_string(row, 2, ch[index2-length:index2], colorstyle, ch[index2:index2+len(str(i))], ch[index2+len(str(i)):index2+len(str(i))+length])
             row += 1
             index1 = index2 + 1
-      workbook.close()    
+        cur_progress += 1
+        progress_bar.set_value(cur_progress)
+      workbook.close()
+    progress_bar.close()
 
   def search_result_statistics_dataframe(self, search_result_folder):
     filelist = listdir(search_result_folder)
